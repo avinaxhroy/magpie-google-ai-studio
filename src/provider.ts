@@ -35,7 +35,7 @@ export interface Transport {
   ): Promise<Response>;
 }
 
-export function errorResponse(status: number, message: string): Response {
+export function errorPayload(status: number, message: string): Record<string, unknown> {
   const names: Record<number, string> = {
     400: "INVALID_ARGUMENT",
     401: "UNAUTHENTICATED",
@@ -46,7 +46,25 @@ export function errorResponse(status: number, message: string): Response {
     502: "UNAVAILABLE",
     504: "DEADLINE_EXCEEDED",
   };
-  return Response.json({ error: { code: status, message, status: names[status] || "UNKNOWN" } }, { status });
+  return { error: { code: status, message, status: names[status] || "UNKNOWN" } };
+}
+
+export function errorResponse(status: number, message: string): Response {
+  return Response.json(errorPayload(status, message), { status });
+}
+
+/**
+ * A rejection from the page or the session carries the status the caller should
+ * see. Anything else is a transport or decoder failure, which is retryable and
+ * therefore reported as unavailable.
+ */
+export function failureResponse(error: unknown, fallback: string, status = 502): Response {
+  if ((error as { signIn?: string }).signIn === "expired")
+    return errorResponse(401, "Google AI Studio session expired; sign in again");
+  return errorResponse(
+    (error as { status?: number }).status ?? status,
+    error instanceof Error ? error.message : fallback,
+  );
 }
 
 export function providerFetch(
@@ -158,9 +176,7 @@ export function providerFetch(
       });
     } catch (error) {
       if (request.signal.aborted) throw request.signal.reason;
-      if ((error as { signIn?: string }).signIn === "expired")
-        return errorResponse(401, "Google AI Studio session expired; sign in again");
-      return errorResponse(502, error instanceof Error ? error.message : "AI Studio request failed");
+      return failureResponse(error, "AI Studio request failed");
     }
   };
 }
@@ -286,11 +302,6 @@ async function auxiliaryFetch(transport: Transport, request: Request): Promise<R
     });
   } catch (error) {
     if (request.signal.aborted) throw request.signal.reason;
-    if ((error as { signIn?: string }).signIn === "expired")
-      return errorResponse(401, "Google AI Studio session expired; sign in again");
-    return errorResponse(
-      upstream ? 502 : 400,
-      error instanceof Error ? error.message : "AI Studio auxiliary request failed",
-    );
+    return failureResponse(error, "AI Studio auxiliary request failed", upstream ? 502 : 400);
   }
 }

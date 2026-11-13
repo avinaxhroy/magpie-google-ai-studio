@@ -8,6 +8,7 @@ import {
   isExecutable,
   missingBrowserError,
   pickBrowser,
+  searchRoots,
 } from "./browsers.ts";
 import type { Options } from "./session.ts";
 
@@ -35,12 +36,14 @@ export function chromePath(explicit?: string): string {
     return configured;
   }
   // The official container image installs its own Chromium beside this cache.
+  // It is a Linux shell wrapper, so it is only meaningful there: elsewhere a
+  // stray copy would outrank every real browser on the machine.
   const vendored = join(directory(), "chromium");
-  if (isExecutable(vendored)) return vendored;
+  if (process.platform === "linux" && isExecutable(vendored)) return vendored;
   const candidates = browserCandidates();
   const found = pickBrowser(candidates);
   if (found) return found.path;
-  throw missingBrowserError(candidates);
+  throw missingBrowserError(candidates, searchRoots());
 }
 
 async function officialContainer(): Promise<boolean> {
@@ -83,8 +86,11 @@ async function run(argv: string[], report = false): Promise<string> {
 }
 
 async function browserWorks(path: string): Promise<boolean> {
-  const profile = await mkdtemp(join(directory(), "probe-"));
+  let profile: string | undefined;
   try {
+    // A cache directory that cannot be created (read-only or full /config)
+    // means this probe could not run, not that the browser is broken.
+    profile = await mkdtemp(join(directory(), "probe-"));
     const child = Bun.spawn(
       [
         path,
@@ -107,7 +113,7 @@ async function browserWorks(path: string): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    await rm(profile, { recursive: true, force: true });
+    if (profile) await rm(profile, { recursive: true, force: true });
   }
 }
 
@@ -188,10 +194,14 @@ exec "$root/root/usr/lib/chromium/chromium" "$@"
 `,
     );
     await chmod(wrapper, 0o755);
-    if (!(await browserWorks(wrapper)))
+    if (!(await browserWorks(wrapper))) {
+      // Leaving a wrapper that passes isExecutable behind would shadow every
+      // real browser on later starts.
+      await rm(wrapper, { force: true });
       throw new Error(
         "Installed Chromium could not start; check /config permissions and container restrictions",
       );
+    }
     console.error("[google-ai-studio] Browser dependencies are ready.");
     return wrapper;
   } finally {

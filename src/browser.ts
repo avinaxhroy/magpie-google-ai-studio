@@ -1,5 +1,6 @@
 import { access, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { configuredBrowserError } from "./browsers.ts";
 import { chromePath } from "./dependencies.ts";
 import { cancelFetch, INSTALL, launchFetch, readFetch } from "./page.ts";
 import { parseModels, parseSparseJSON, responseError, type Wire } from "./protocol.ts";
@@ -35,6 +36,20 @@ export class StudioBrowser {
     readonly options: Options,
   ) {}
 
+  /**
+   * Launch the browser, turning a vanished executable into an explanation.
+   * A browser that updates itself replaces its bundle on disk, so the path
+   * `chromePath` validated a moment ago can be gone by the time it is started.
+   */
+  private spawnBrowser(path: string, args: string[]): ReturnType<typeof Bun.spawn> {
+    try {
+      return Bun.spawn([path, ...args], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") throw configuredBrowserError(path);
+      throw error;
+    }
+  }
+
   async open(interactive = false): Promise<void> {
     if (typeof Bun.WebView !== "function")
       throw new Error("The Bun runtime used by Magpie must provide Bun.WebView");
@@ -48,22 +63,14 @@ export class StudioBrowser {
       // Google can reject sign-in inside a browser controlled by automation.
       // Let the user sign in with an ordinary browser window, then reopen its
       // persisted profile with WebView only after that window was closed.
-      this.chrome = Bun.spawn(
-        [
-          path,
-          `--user-data-dir=${this.session.profile}`,
-          "--no-first-run",
-          "--no-default-browser-check",
-          ...argv,
-          "--allow-browser-signin=false",
-          `${ORIGIN}/prompts/new_chat`,
-        ],
-        {
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "ignore",
-        },
-      );
+      this.chrome = this.spawnBrowser(path, [
+        `--user-data-dir=${this.session.profile}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        ...argv,
+        "--allow-browser-signin=false",
+        `${ORIGIN}/prompts/new_chat`,
+      ]);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const code = await Promise.race([
@@ -88,25 +95,21 @@ export class StudioBrowser {
     // profile. WebView's spawned backend exposes no process-exit promise.
     const portFile = join(this.session.profile, "DevToolsActivePort");
     await rm(portFile, { force: true });
-    this.chrome = Bun.spawn(
-      [
-        path,
-        `--user-data-dir=${this.session.profile}`,
-        "--remote-debugging-port=0",
-        "--remote-debugging-address=127.0.0.1",
-        "--headless=new",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-extensions",
-        "--disable-blink-features=AutomationControlled",
-        ...argv,
-        // Dice can log out imported web cookies when the new profile has no
-        // Chrome OAuth tokens. This provider uses website login exclusively.
-        "--allow-browser-signin=false",
-        "about:blank",
-      ],
-      { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
-    );
+    this.chrome = this.spawnBrowser(path, [
+      `--user-data-dir=${this.session.profile}`,
+      "--remote-debugging-port=0",
+      "--remote-debugging-address=127.0.0.1",
+      "--headless=new",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-extensions",
+      "--disable-blink-features=AutomationControlled",
+      ...argv,
+      // Dice can log out imported web cookies when the new profile has no
+      // Chrome OAuth tokens. This provider uses website login exclusively.
+      "--allow-browser-signin=false",
+      "about:blank",
+    ]);
     let endpoint = "";
     for (let attempt = 0; attempt < 150; attempt++) {
       if (this.chrome.exitCode !== null) throw new Error(`${browser} exited before starting WebView`);

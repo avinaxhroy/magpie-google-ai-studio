@@ -55,6 +55,26 @@ test("plugin exports the Magpie server and preserves existing provider configura
   expect(await textImport.callback()).toMatchObject({ type: "failed" });
 });
 
+test("every sign-in method and prompt is localized for the languages Magpie shows", async () => {
+  const hooks = await plugin.server({});
+  // Magpie only ever asks for these; any other key is silently unreadable.
+  const wanted = ["en", "ja", "zh", "zh-TW"];
+  for (const method of hooks.auth.methods) {
+    expect(Object.keys(method.labels).sort()).toEqual(wanted);
+    // The plain string is what `magpie plugin login` and older hosts show.
+    expect(method.labels.en).toBe(method.label);
+    for (const prompt of method.prompts) {
+      expect(Object.keys(prompt.messages).sort()).toEqual(wanted);
+      expect(prompt.messages.en).toBe(prompt.message);
+      for (const text of [...Object.values(prompt.messages), prompt.message]) {
+        expect(text.trim()).not.toBe("");
+        // Magpie trims each entry at 300 characters.
+        expect(text.length).toBeLessThanOrEqual(300);
+      }
+    }
+  }
+});
+
 test("provider lists only text conversation models until Magpie supports model purposes", async () => {
   const row = (id: string, codes: number[], methods = ["generateContent"]) => {
     const model: Wire = Array(65).fill(null);

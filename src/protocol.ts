@@ -67,6 +67,11 @@ function strings(value: unknown, path: string): string[] {
 
 /** Normalize omitted protobuf array slots without executing JavaScript. */
 export function parseSparseJSON(text: string): Json {
+  // Frames without a hole are the common case, and most of the bulk is in
+  // base64 payloads that cannot contain brackets or quotes; skipping the
+  // character walk keeps large attachments off the hot path. A hole is a comma
+  // directly after `[` or another comma, or directly before `]`.
+  if (!/[[,]\s*[,\]]/.test(text)) return json(JSON.parse(text) as unknown);
   let output = "",
     quoted = false,
     escaped = false,
@@ -686,19 +691,21 @@ export function parseModels(response: unknown): Record<string, Record<string, un
     seen = new Set<string>();
   for (const value of rows) {
     const row = array(value, "model row"),
-      id = string(row[0], "model ID").replace(/^models\//, ""),
-      name = string(row[3], "model display name");
-    if (!id || !name || seen.has(id)) fail("empty or duplicate ListModels model ID/name");
-    seen.add(id);
-    const methods = row[7] == null ? [] : strings(row[7], "model methods");
-    const codes =
-      row[64] == null ? [] : array(row[64]).map((c) => number(c, "capability code", 0, Infinity, true));
+      methods = row[7] == null ? [] : strings(row[7], "model methods"),
+      codes =
+        row[64] == null ? [] : array(row[64]).map((c) => number(c, "capability code", 0, Infinity, true));
+    // Skip non-chat rows before reading their labels, so a single unusable row
+    // cannot hide an otherwise valid catalog.
     if (
       !methods.includes("generateContent") ||
       row[78] != null ||
       codes.some((c) => [20, 26, 46, 53, 59].includes(c))
     )
       continue;
+    const id = typeof row[0] === "string" ? row[0].replace(/^models\//, "") : "",
+      name = typeof row[3] === "string" ? row[3] : "";
+    if (!id || !name || seen.has(id)) fail("empty or duplicate ListModels model ID/name");
+    seen.add(id);
     const context = number(row[5], "input token limit", 1, Infinity, true),
       output = number(row[6], "output token limit", 1, Infinity, true);
     const reasoning = codes.some((c) => [25, 35, 52].includes(c)),

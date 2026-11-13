@@ -90,6 +90,9 @@ export class StudioClient {
 
   private async open(interactive = false, signal?: AbortSignal): Promise<void> {
     const worker = fileURLToPath(new URL("./worker.ts", import.meta.url));
+    // A worker that died leaves its catalog and proxy signature behind next to
+    // a dead pipe, so a later request would trust a browser that no longer runs.
+    if (this.child && this.child.exitCode !== null) await this.close();
     if (this.child) {
       const probe = Bun.spawn([process.execPath, worker, "--proxy-signature"], {
         stdin: "ignore",
@@ -243,7 +246,9 @@ export class StudioClient {
       const rows = (this.catalog?.[0] || []) as Wire[];
       const defaults = rows.find((row) => row[0] === `models/${model}`);
       if (model && !defaults)
-        throw new Error(`Model ${model} is not available in this Google AI Studio account`);
+        throw Object.assign(new Error(`Model ${model} is not available in this Google AI Studio account`), {
+          status: 404,
+        });
       const encoded = encode(defaults, this.timezone);
       await this.rpc("generate", { requestId: id, ...encoded });
       let head: PageChunk;
@@ -251,7 +256,10 @@ export class StudioClient {
         abort.throwIfAborted();
         head = await this.rpc<PageChunk>("poll", { requestId: id });
         if (head.error)
-          throw new Error("AI Studio page request failed; sign in again or check the page protocol");
+          throw Object.assign(
+            new Error("AI Studio page request failed; sign in again or check the page protocol"),
+            { status: 401 },
+          );
         if (head.status) break;
         await Bun.sleep(25);
       }

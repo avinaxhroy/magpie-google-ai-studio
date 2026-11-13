@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   createSession,
@@ -205,6 +205,59 @@ test("migration text rejects corruption, unsupported formats, and oversized expa
       expect(message).not.toContain("must-not-appear-in-errors");
       expect(await readdir(root)).toEqual([]);
     }
+  } finally {
+    if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
+    else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a damaged account descriptor is skipped instead of hiding every other account", async () => {
+  const root = await mkdtemp(join(tmpdir(), "magpie-damaged-session-"));
+  const previous = process.env.MAGPIE_AISTUDIO_DATA_DIR;
+  process.env.MAGPIE_AISTUDIO_DATA_DIR = root;
+  try {
+    const healthy = await createSession("healthy-account");
+    await saveSession(healthy);
+    for (const [profile, body] of [
+      ["truncated", '{"version":1,"profile":'],
+      ["wrong-version", JSON.stringify({ version: 2, profile: join(root, "x"), accountId: "x" })],
+    ] as const) {
+      await Bun.write(join(root, profile, "account.session.json"), body);
+    }
+    expect(await listSessions()).toEqual([healthy]);
+  } finally {
+    if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
+    else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("export refuses a relative path instead of hiding credentials in the working directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "magpie-export-path-"));
+  const previous = process.env.MAGPIE_AISTUDIO_DATA_DIR;
+  process.env.MAGPIE_AISTUDIO_DATA_DIR = root;
+  try {
+    const source = await createSession("export-account");
+    for (const path of ["account.aistudio.json", "~/account.aistudio.json", "./nested/account.json"])
+      await expect(exportSession(source, state, path)).rejects.toThrow("Use an absolute export path");
+    // Only the profile created by createSession, and no stray export file.
+    expect(await readdir(root)).toEqual([basename(source.profile)]);
+  } finally {
+    if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
+    else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("import rejects an oversized session file before parsing it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "magpie-import-size-"));
+  const previous = process.env.MAGPIE_AISTUDIO_DATA_DIR;
+  process.env.MAGPIE_AISTUDIO_DATA_DIR = root;
+  try {
+    const path = join(root, "oversized.json");
+    await Bun.write(path, `"${"x".repeat(1024 * 1024)}"`);
+    await expect(importSession(path)).rejects.toThrow("too large to import");
   } finally {
     if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
     else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;

@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
-import { chmod, mkdir, open, readdir, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 export interface Session {
@@ -78,7 +78,13 @@ export function optionsFrom(raw: Record<string, unknown> = {}): Options {
 export function readSession(key: unknown): Session {
   if (typeof key !== "string")
     throw Object.assign(new Error("Sign in to Google AI Studio first"), { signIn: "expired" });
-  const value = JSON.parse(key);
+  let value: { version?: unknown; profile?: unknown; accountId?: unknown } | undefined;
+  try {
+    value = JSON.parse(key);
+  } catch {
+    // A damaged descriptor is a missing sign-in from the caller's point of view.
+    throw Object.assign(new Error("Sign in to Google AI Studio first"), { signIn: "expired" });
+  }
   if (
     value?.version !== 1 ||
     typeof value.profile !== "string" ||
@@ -106,8 +112,12 @@ export async function createSession(accountId: string): Promise<Session> {
 
 export async function saveSession(session: Session): Promise<string> {
   const path = join(session.profile, "account.session.json");
-  await Bun.write(path, JSON.stringify(session, null, 2), { mode: 0o600 });
-  await chmod(path, 0o600);
+  // Write beside the descriptor and rename, so an interrupted save cannot leave
+  // a truncated file that breaks every later listing for this account.
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  await Bun.write(temporary, JSON.stringify(session, null, 2), { mode: 0o600 });
+  await chmod(temporary, 0o600);
+  await rename(temporary, path);
   return path;
 }
 
@@ -124,7 +134,11 @@ export async function listSessions(): Promise<Session[]> {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const file = Bun.file(join(root, entry.name, "account.session.json"));
-    if (await file.exists()) sessions.push(readSession(await file.text()));
+    if (!(await file.exists())) continue;
+    // One corrupt profile must not hide every other account.
+    try {
+      sessions.push(readSession(await file.text()));
+    } catch {}
   }
   return sessions;
 }
@@ -273,6 +287,10 @@ export async function importSessionText(text: string): Promise<Session> {
 
 export async function exportSession(session: Session, state: StorageState, path: string): Promise<string> {
   if (!path.trim()) throw new Error("An export file path is required");
+  // A relative or `~` path would otherwise write credentials into whatever
+  // directory Magpie happens to run in, which the user cannot find again.
+  if (!isAbsolute(path))
+    throw new Error(`Use an absolute export path, for example ${join(homedir(), "account.aistudio.json")}`);
   const output = resolve(path);
   const portable = portableSession(session, state);
   await mkdir(dirname(output), { recursive: true, mode: 0o700 });
@@ -292,9 +310,13 @@ export async function exportSession(session: Session, state: StorageState, path:
 
 // Import only local files. Session material never travels through a remote login URL.
 export async function importSession(path: string, accountId?: string): Promise<Session> {
+  const file = Bun.file(resolve(path));
+  // Reject oversize input before parsing, so a mistyped path to a huge file
+  // fails as a validation error instead of allocating it whole.
+  if (file.size > MAX_TRANSFER_JSON) throw new Error("The session file is too large to import");
   let value: unknown;
   try {
-    value = JSON.parse(await Bun.file(resolve(path)).text());
+    value = JSON.parse(await file.text());
   } catch (error) {
     if (error instanceof SyntaxError) throw new Error("Invalid session JSON file");
     throw error;
