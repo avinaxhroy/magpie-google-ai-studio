@@ -13,7 +13,7 @@ Export writes a portable file containing Google login credentials (mode 0600).
 Import verifies the session and prints its new local descriptor path. Register
 that descriptor with "magpie plugin login google-ai-studio", or import the
 portable file directly through Magpie's login menu instead.
-Close Magpie before CLI export if it is using the same Chrome profile.`);
+Close Magpie before CLI export if it is using the same browser profile.`);
 } else {
   let client: StudioClient | undefined;
   try {

@@ -158,13 +158,15 @@ test("migration text preserves portable state and Unicode accounts across data d
     const large = exportSessionText(imported, noise(29_000));
     expect(large.length).toBeLessThanOrEqual(60 * 1024);
     expect((await importSessionText(large)).accountId).toBe(source.accountId);
-    expect(() => exportSessionText(imported, noise(32_000))).toThrow("表单长度限制");
+    expect(() => exportSessionText(imported, noise(32_000))).toThrow(
+      "longer than the Magpie Web form allows",
+    );
     expect(() =>
       exportSessionText(imported, {
         cookies: [{ ...state.cookies[0], value: "x".repeat(1024 * 1024) }],
         origins: [],
       }),
-    ).toThrow("数据过大");
+    ).toThrow("too large for transfer text");
   } finally {
     if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
     else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;

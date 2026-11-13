@@ -24,6 +24,7 @@
     "index.ts",
     "src",
     "README.md",
+    "README.en.md",
     "LICENSE",
     "NOTICE"
   ],
@@ -53,7 +54,13 @@
     "access": "public"
   },
   "magpie": {
-    "maxConcurrency": 1
+    "maxConcurrency": 1,
+    "name": "Google AI Studio",
+    "summary": {
+      "en": "Signs in to Google AI Studio with a local Chromium-family browser and serves its models through Magpie.",
+      "zh": "用本机的 Chromium 系浏览器登录 Google AI Studio，并通过 Magpie 提供其模型。",
+      "ja": "ローカルの Chromium 系ブラウザで Google AI Studio にログインし、そのモデルを Magpie 経由で提供します。"
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",

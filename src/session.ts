@@ -233,28 +233,38 @@ function portableSession(session: Session, state: StorageState) {
 
 export function exportSessionText(session: Session, state: StorageState): string {
   const json = JSON.stringify(portableSession(session, state));
-  if (Buffer.byteLength(json) > MAX_TRANSFER_JSON) throw new Error("会话数据过大，请使用文件导出和导入");
+  if (Buffer.byteLength(json) > MAX_TRANSFER_JSON)
+    throw new Error("The session is too large for transfer text. Export and import it as a file instead.");
   const text = TRANSFER_PREFIX + gzipSync(json).toString("hex").toUpperCase();
   if (text.length > MAX_TRANSFER_LENGTH)
-    throw new Error("迁移文本超过 Magpie Web 表单长度限制，请使用文件导出和导入");
+    throw new Error(
+      "The transfer text is longer than the Magpie Web form allows. Export and import it as a file instead.",
+    );
   return text;
 }
 
 export async function importSessionText(text: string): Promise<Session> {
   const input = text.trim();
   if (input.length > MAX_TRANSFER_LENGTH)
-    throw new Error("迁移文本超过 Magpie Web 表单长度限制，请使用文件导出和导入");
+    throw new Error(
+      "The transfer text is longer than the Magpie Web form allows. Export and import it as a file instead.",
+    );
   if (!input.startsWith(TRANSFER_PREFIX))
-    throw new Error("无法识别迁移文本格式或版本，请复制完整的 aistudio-session:v1- 文本");
+    throw new Error(
+      "Unrecognized transfer text format or version. Copy the whole aistudio-session:v1- text.",
+    );
   const hex = input.slice(TRANSFER_PREFIX.length);
-  if (!/^(?:[0-9a-fA-F]{2})+$/.test(hex)) throw new Error("迁移文本不完整或已损坏，请重新复制");
+  if (!/^(?:[0-9a-fA-F]{2})+$/.test(hex))
+    throw new Error("The transfer text is incomplete or corrupted. Copy it again.");
   let value: Record<string, unknown> | null;
   try {
     value = JSON.parse(
       gunzipSync(Buffer.from(hex, "hex"), { maxOutputLength: MAX_TRANSFER_JSON }).toString("utf8"),
     );
   } catch {
-    throw new Error("迁移文本不完整、已损坏或解压后过大，请重新导出或使用文件迁移");
+    throw new Error(
+      "The transfer text is incomplete, corrupted, or too large once unpacked. Export it again or move a file instead.",
+    );
   }
   if (value?.format !== PORTABLE_FORMAT || value.version !== 1)
     throw new Error("Unsupported Google AI Studio portable session format/version");

@@ -64,18 +64,36 @@ export default {
         methods: [
           {
             type: "oauth" as const,
-            label: "登录 Google AI Studio（打开本机 Chrome）",
+            label: "Sign in to Google AI Studio (opens your browser)",
+            labels: {
+              en: "Sign in to Google AI Studio (opens your browser)",
+              zh: "登录 Google AI Studio（打开本机浏览器）",
+              "zh-Hans": "登录 Google AI Studio（打开本机浏览器）",
+              ja: "Google AI Studio にログイン（このコンピュータのブラウザを開く）",
+            },
             prompts: [
               {
                 type: "text",
                 key: "account",
-                message: "账号名称（用于区分多个账号）",
+                message: "Account name (tells accounts apart)",
+                messages: {
+                  en: "Account name (tells accounts apart)",
+                  zh: "账号名称（用于区分多个账号）",
+                  "zh-Hans": "账号名称（用于区分多个账号）",
+                  ja: "アカウント名（複数のアカウントを区別するため）",
+                },
                 placeholder: "you@gmail.com",
               },
               {
                 type: "text",
                 key: "exportPath",
-                message: "可迁移会话包导出路径（留空跳过）",
+                message: "Path to also export a portable session file (leave empty to skip)",
+                messages: {
+                  en: "Path to also export a portable session file (leave empty to skip)",
+                  zh: "可迁移会话包导出路径（留空跳过）",
+                  "zh-Hans": "可迁移会话包导出路径（留空跳过）",
+                  ja: "持ち運べるセッションファイルの書き出し先（空欄なら省略）",
+                },
                 placeholder: "/path/to/account.aistudio.json",
               },
             ],
@@ -91,7 +109,7 @@ export default {
                 } catch (error) {
                   return {
                     type: "failed" as const,
-                    error: error instanceof Error ? error.message : "登录失败",
+                    error: error instanceof Error ? error.message : "Sign-in failed",
                   };
                 } finally {
                   await client.close();
@@ -101,7 +119,7 @@ export default {
                 url: "https://aistudio.google.com/",
                 opened: true,
                 instructions:
-                  "请在打开的普通 Chrome 窗口登录 Google AI Studio，完成首次使用设置后关闭该窗口。最多等待 10 分钟，关闭后自动验证并保存会话。",
+                  "Sign in to Google AI Studio in the browser window that just opened, finish the first-run setup, then close that window. The sign-in is checked and saved automatically; it waits up to 10 minutes.",
                 method: "auto" as const,
                 callback: () => result,
               };
@@ -109,23 +127,48 @@ export default {
           },
           {
             type: "oauth" as const,
-            label: "导入 Google AI Studio 会话／导出本机会话",
+            label: "Import a Google AI Studio session, or export this machine's session",
+            labels: {
+              en: "Import a Google AI Studio session, or export this machine's session",
+              zh: "导入 Google AI Studio 会话／导出本机会话",
+              "zh-Hans": "导入 Google AI Studio 会话／导出本机会话",
+              ja: "Google AI Studio セッションを読み込む／このコンピュータのセッションを書き出す",
+            },
             prompts: [
               {
                 type: "text",
                 key: "path",
-                message: "跨机器会话包、本机 account.session.json 或 storage-state JSON 的绝对路径",
+                message:
+                  "Absolute path to a portable session file, a local account.session.json, or a storage-state JSON",
+                messages: {
+                  en: "Absolute path to a portable session file, a local account.session.json, or a storage-state JSON",
+                  zh: "跨机器会话包、本机 account.session.json 或 storage-state JSON 的绝对路径",
+                  "zh-Hans": "跨机器会话包、本机 account.session.json 或 storage-state JSON 的绝对路径",
+                  ja: "持ち運び用セッションファイル、このコンピュータの account.session.json、または storage-state JSON への絶対パス",
+                },
               },
               {
                 type: "text",
                 key: "account",
-                message: "账号名称（留空保留会话包中的名称）",
+                message: "Account name (leave empty to keep the name in the session file)",
+                messages: {
+                  en: "Account name (leave empty to keep the name in the session file)",
+                  zh: "账号名称（留空保留会话包中的名称）",
+                  "zh-Hans": "账号名称（留空保留会话包中的名称）",
+                  ja: "アカウント名（空欄ならセッションファイルの名前を使う）",
+                },
                 placeholder: "you@gmail.com",
               },
               {
                 type: "text",
                 key: "exportPath",
-                message: "同时导出可迁移会话包到此路径（留空跳过）",
+                message: "Also export a portable session file to this path (leave empty to skip)",
+                messages: {
+                  en: "Also export a portable session file to this path (leave empty to skip)",
+                  zh: "同时导出可迁移会话包到此路径（留空跳过）",
+                  "zh-Hans": "同时导出可迁移会话包到此路径（留空跳过）",
+                  ja: "持ち運べるセッションファイルをこのパスにも書き出す（空欄なら省略）",
+                },
                 placeholder: "/path/to/account.aistudio.json",
               },
             ],
@@ -141,7 +184,7 @@ export default {
                 } catch (error) {
                   return {
                     type: "failed" as const,
-                    error: error instanceof Error ? error.message : "导入失败",
+                    error: error instanceof Error ? error.message : "Import failed",
                   };
                 }
               })();
@@ -150,7 +193,8 @@ export default {
               return {
                 url: "",
                 opened: true,
-                instructions: "正在验证会话；如果填写了导出路径，验证后会将可迁移会话包保存到该路径。",
+                instructions:
+                  "Checking the session. If an export path was given, a portable session file is written there once it checks out.",
                 method: "auto" as const,
                 callback: () => result,
               };
@@ -158,20 +202,36 @@ export default {
           },
           {
             type: "oauth" as const,
-            label: "导出可复制的会话迁移文本（Web）",
+            label: "Export portable session text for the Web",
+            labels: {
+              en: "Export portable session text for the Web",
+              zh: "导出可复制的会话迁移文本（Web）",
+              "zh-Hans": "导出可复制的会话迁移文本（Web）",
+              ja: "持ち運べるセッションテキストを書き出す（Web）",
+            },
             prompts: [
               {
                 type: "text",
                 key: "account",
-                message: "要导出的账号名称（与登录时填写的一致，仅有一个本机会话时可留空）",
+                message:
+                  "Account name to export (same as at sign-in; leave empty when only one local session exists)",
+                messages: {
+                  en: "Account name to export (same as at sign-in; leave empty when only one local session exists)",
+                  zh: "要导出的账号名称（与登录时填写的一致，仅有一个本机会话时可留空）",
+                  "zh-Hans": "要导出的账号名称（与登录时填写的一致，仅有一个本机会话时可留空）",
+                  ja: "書き出すアカウント名（ログイン時と同じもの。ローカルに 1 件だけなら空欄可）",
+                },
               },
             ],
             async authorize(inputs: Record<string, string> = {}) {
               const account = inputs.account?.trim();
               const sessions = (await listSessions()).filter((s) => !account || s.accountId === account);
-              if (sessions.length === 0) throw new Error("找不到本机会话，请检查账号名称或先登录");
+              if (sessions.length === 0)
+                throw new Error("No local session found. Check the account name, or sign in first.");
               if (sessions.length !== 1)
-                throw new Error("存在多个本机会话，请填写唯一的账号名称；同名会话请通过文件入口导出");
+                throw new Error(
+                  "Several local sessions matched. Enter one exact account name, or export a file instead.",
+                );
               const session = sessions[0];
               const text = await clientFor(session).export();
               return {
@@ -180,11 +240,14 @@ export default {
                 url: text,
                 opened: true,
                 instructions:
-                  "请点击下方文本旁的复制按钮，将完整迁移文本私密传给目标机器。它包含登录凭据，请勿打开链接或点击 Open again。复制完成后，在 Code 中输入 DONE 并完成；也可关闭窗口，源账号不受影响。",
+                  "Copy the whole text with the copy button beside it and pass it privately to the other machine. It contains sign-in credentials: do not open it as a link. When the copy is done, enter DONE in the Code field, or just close this window.",
                 method: "code" as const,
                 async callback(code = "") {
                   if (code.trim() !== "DONE")
-                    return { type: "failed" as const, error: "请输入 DONE 确认已复制迁移文本" };
+                    return {
+                      type: "failed" as const,
+                      error: "Enter DONE to confirm the transfer text was copied",
+                    };
                   return authSuccess(session);
                 },
               };
@@ -192,12 +255,25 @@ export default {
           },
           {
             type: "oauth" as const,
-            label: "粘贴会话迁移文本导入（Web）",
+            label: "Paste portable session text to import (Web)",
+            labels: {
+              en: "Paste portable session text to import (Web)",
+              zh: "粘贴会话迁移文本导入（Web）",
+              "zh-Hans": "粘贴会话迁移文本导入（Web）",
+              ja: "持ち運べるセッションテキストを貼り付けて読み込む（Web）",
+            },
             prompts: [
               {
                 type: "password",
                 key: "payload",
-                message: "粘贴完整的 aistudio-session:v1- 迁移文本（包含登录凭据）",
+                message:
+                  "Paste the whole aistudio-session:v1- transfer text (it contains sign-in credentials)",
+                messages: {
+                  en: "Paste the whole aistudio-session:v1- transfer text (it contains sign-in credentials)",
+                  zh: "粘贴完整的 aistudio-session:v1- 迁移文本（包含登录凭据）",
+                  "zh-Hans": "粘贴完整的 aistudio-session:v1- 迁移文本（包含登录凭据）",
+                  ja: "aistudio-session:v1- で始まる移行テキスト全体を貼り付け（ログイン情報を含む）",
+                },
               },
             ],
             async authorize(inputs: Record<string, string> = {}) {
@@ -218,14 +294,15 @@ export default {
                   }
                   return {
                     type: "failed" as const,
-                    error: error instanceof Error ? error.message : "导入失败",
+                    error: error instanceof Error ? error.message : "Import failed",
                   };
                 }
               })();
               return {
                 url: "",
                 opened: true,
-                instructions: "正在恢复并验证会话，成功后会自动保存账号并读取模型列表。",
+                instructions:
+                  "Checking and restoring the session. When it checks out the account is saved and its models are read.",
                 method: "auto" as const,
                 callback: () => result,
               };

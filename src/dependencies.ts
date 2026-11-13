@@ -2,6 +2,13 @@ import { chmod, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  browserCandidates,
+  configuredBrowserError,
+  isExecutable,
+  missingBrowserError,
+  pickBrowser,
+} from "./browsers.ts";
 import type { Options } from "./session.ts";
 
 const prepared = new Map<string, Promise<string>>();
@@ -15,30 +22,25 @@ function directory(): string {
   );
 }
 
+/**
+ * The browser executable to drive. An explicit setting always wins and is
+ * validated, so a stale path fails with a message naming it instead of an
+ * ENOENT from Bun.spawn. Otherwise every Chromium-family browser installed on
+ * this machine is a candidate, not only Google Chrome.
+ */
 export function chromePath(explicit?: string): string {
-  if (explicit || process.env.BUN_CHROME_PATH) return explicit || process.env.BUN_CHROME_PATH!;
-  for (const name of [
-    join(directory(), "chromium"),
-    "google-chrome-stable",
-    "google-chrome",
-    "chromium",
-    "chromium-browser",
-    "msedge",
-    "chrome",
-  ]) {
-    const path = Bun.which(name);
-    if (path) return path;
+  const configured = explicit || process.env.BUN_CHROME_PATH;
+  if (configured) {
+    if (!isExecutable(configured)) throw configuredBrowserError(configured);
+    return configured;
   }
-  if (process.platform === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  if (process.platform === "win32")
-    return join(
-      process.env.PROGRAMFILES || "C:\\Program Files",
-      "Google",
-      "Chrome",
-      "Application",
-      "chrome.exe",
-    );
-  throw new Error("Install Chrome/Chromium or set BUN_CHROME_PATH");
+  // The official container image installs its own Chromium beside this cache.
+  const vendored = join(directory(), "chromium");
+  if (isExecutable(vendored)) return vendored;
+  const candidates = browserCandidates();
+  const found = pickBrowser(candidates);
+  if (found) return found.path;
+  throw missingBrowserError(candidates);
 }
 
 async function officialContainer(): Promise<boolean> {
@@ -114,13 +116,16 @@ async function install(explicit?: string): Promise<string> {
   let chrome: string | undefined;
   try {
     chrome = chromePath(explicit);
-  } catch {
+  } catch (error) {
+    // A configured browser that is missing or unreadable is a user mistake;
+    // installing a second browser cannot fix it.
+    if (explicit || process.env.BUN_CHROME_PATH) throw error;
     /* Install the default browser below. */
   }
   if (chrome && !(await browserWorks(chrome))) {
     if (explicit || process.env.BUN_CHROME_PATH)
       throw new Error(
-        "The configured Chrome cannot start; check chromePath/BUN_CHROME_PATH and its shared libraries",
+        `The configured browser cannot start: ${chrome}. Check the chromePath plugin option or BUN_CHROME_PATH, and its shared libraries.`,
       );
     chrome = undefined;
   }

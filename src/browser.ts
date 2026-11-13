@@ -1,5 +1,5 @@
 import { access, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { chromePath } from "./dependencies.ts";
 import { cancelFetch, INSTALL, launchFetch, readFetch } from "./page.ts";
 import { parseModels, parseSparseJSON, responseError, type Wire } from "./protocol.ts";
@@ -40,13 +40,14 @@ export class StudioBrowser {
       throw new Error("The Bun runtime used by Magpie must provide Bun.WebView");
     await access(this.session.profile);
     const path = chromePath(this.options.chromePath);
+    const browser = basename(path);
     const configuredArgs = this.options.chromeArgs || [];
     this.proxy = await browserProxy(configuredArgs);
     const argv = [...this.proxy.args, ...configuredArgs];
     if (interactive) {
       // Google can reject sign-in inside a browser controlled by automation.
-      // Let the user sign in with ordinary Chrome, then reopen its persisted
-      // profile with WebView only after the user has closed the login window.
+      // Let the user sign in with an ordinary browser window, then reopen its
+      // persisted profile with WebView only after that window was closed.
       this.chrome = Bun.spawn(
         [
           path,
@@ -76,7 +77,7 @@ export class StudioBrowser {
         ]);
         if (code !== 0)
           throw new Error(
-            "Chrome login window exited unsuccessfully. Use a desktop session or import a storage-state file.",
+            `${browser} exited with code ${code} before sign-in finished. Sign in again, import a storage-state file, or set chromePath/BUN_CHROME_PATH to a Chromium-family browser.`,
           );
       } finally {
         if (timer) clearTimeout(timer);
@@ -108,7 +109,7 @@ export class StudioBrowser {
     );
     let endpoint = "";
     for (let attempt = 0; attempt < 150; attempt++) {
-      if (this.chrome.exitCode !== null) throw new Error("Chrome exited before starting WebView");
+      if (this.chrome.exitCode !== null) throw new Error(`${browser} exited before starting WebView`);
       const file = Bun.file(portFile);
       if (await file.exists()) {
         const [port, path] = (await file.text()).trim().split("\n");
@@ -119,7 +120,7 @@ export class StudioBrowser {
       }
       await Bun.sleep(100);
     }
-    if (!endpoint) throw new Error("Timed out starting Chrome for WebView");
+    if (!endpoint) throw new Error(`Timed out starting ${browser} for WebView`);
     this.view = new Bun.WebView({
       backend: { type: "chrome", url: endpoint },
       width: 1280,

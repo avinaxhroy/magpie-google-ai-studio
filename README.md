@@ -1,5 +1,7 @@
 # magpie-google-ai-studio
 
+[English](README.en.md) | **简体中文**
+
 为 [Magpie](https://github.com/yetone/magpie) 接入 Google AI Studio 网页账号，将 Gemini JSON 和 SSE 请求转换为 AI Studio Playground 和 Build 的私有接口请求。
 
 插件使用 `Bun.WebView`，不需要 Go、Python、Playwright、Puppeteer 或独立 API 服务。
@@ -24,7 +26,7 @@ magpie plugin add github:XYenon/magpie-google-ai-studio
 
 ### 运行环境和登录
 
-Magpie 会自动下载 Bun 来运行插件。插件需要 `Bun.WebView`，普通桌面或服务器还需安装 Chrome、Chromium、Edge 等 Chromium 浏览器。
+Magpie 会自动下载 Bun 来运行插件。插件需要 `Bun.WebView`，普通桌面或服务器还需安装 Chromium 系浏览器（Chrome、Chromium、Brave、Edge、Vivaldi、Arc、Opera 等），插件会自动查找已安装的浏览器。
 
 在 Magpie 官方 Docker 镜像中，插件启动时会检查浏览器是否可用，缺少依赖时从镜像配置的 Debian 软件源下载 Chromium、字体和运行库。依赖解压到 `/config/cache/magpie-google-ai-studio/dependencies/`，不需要 root 或修改镜像。按官方建议挂载 `/config` 即可持久化依赖和账号会话。
 
@@ -36,9 +38,9 @@ Magpie 会自动下载 Bun 来运行插件。插件需要 `Bun.WebView`，普通
 magpie plugin login google-ai-studio
 ```
 
-选择"登录 Google AI Studio"，在打开的 Chrome 窗口完成登录和 AI Studio 首次使用设置，然后关闭窗口。插件会验证并保存会话，后续请求在后台运行。交互登录最多等待 10 分钟。
+选择"登录 Google AI Studio"，在打开的浏览器窗口完成登录和 AI Studio 首次使用设置，然后关闭窗口。插件会验证并保存会话，后续请求在后台运行。交互登录最多等待 10 分钟。
 
-登录窗口出现在运行 Magpie 的机器上，使用独立的 Chrome 配置目录。远程服务器没有桌面时，可在有桌面的机器上登录，再迁移会话。
+登录窗口出现在运行 Magpie 的机器上，使用独立的浏览器配置目录。远程服务器没有桌面时，可在有桌面的机器上登录，再迁移会话。
 
 非 Docker 的 Linux 环境可安装发行版提供的 Chromium，例如 Debian：
 
@@ -53,7 +55,7 @@ sudo apt-get install -y chromium
 
 两端安装本插件后，可以通过 Magpie Web 复制、粘贴迁移文本，也可以传输 `account.aistudio.json` 文件。目标机器可以没有桌面。
 
-两种方式都包含账号名称、Google Cookie（包括 HttpOnly Cookie）和 AI Studio 的 localStorage、sessionStorage，不包含源机器路径或 Chrome 加密密钥。导入会创建新的本地 Chrome 配置目录。若 Google 已使凭据失效或要求额外验证，需要在源机器重新登录再导出。
+两种方式都包含账号名称、Google Cookie（包括 HttpOnly Cookie）和 AI Studio 的 localStorage、sessionStorage，不包含源机器路径或浏览器加密密钥。导入会创建新的本地浏览器配置目录。若 Google 已使凭据失效或要求额外验证，需要在源机器重新登录再导出。
 
 ### 在 Magpie Web 复制、粘贴迁移文本
 
@@ -120,23 +122,23 @@ magpie plugin options magpie-google-ai-studio '{"chromePath":"/usr/bin/chromium"
 
 所有字段均可省略，`{}` 使用默认配置。
 
-| 字段             | 类型           | 默认值                                                       | 说明                                                                                                                                                                                                                                                        |
-| ---------------- | -------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chromePath`     | 字符串         | 自动查找                                                     | Magpie 所在机器上的 Chromium 系浏览器可执行文件路径。优先于 `BUN_CHROME_PATH`；未指定时依次查找托管浏览器、`PATH` 中的浏览器及平台默认路径。官方 Docker 通常无需填写，插件会自动安装缺少的依赖。                                                            |
-| `chromeArgs`     | 字符串数组     | `[]`                                                         | 追加到登录窗口及后台浏览器的启动参数。显式代理参数优先于自动代理。禁止以 `--user-data-dir`、`--remote-debugging` 或 `--headless` 开头的参数，账号目录、调试接口和运行模式由插件管理。官方 Docker 还会自动添加 `--no-sandbox` 和 `--disable-dev-shm-usage`。 |
-| `bootstrapModel` | 字符串         | 账号目录中首个可用的 GenerateContent 模型                    | 初始化页面和 WAA 时使用的模型，不改变实际生成请求指定的模型。必须来自当前账号的 GenerateContent 目录，仅允许字母、数字、下划线、点和连字符，不带 `models/` 前缀；不可用时会报错。                                                                           |
-| `timeoutMs`      | 数字，单位毫秒 | 浏览器进程通信和生成请求为 `180000`；页面内部请求为 `120000` | 覆盖上述可配置的超时，必须是有限数值且不小于 `1000`。不代表整个启动或登录过程的总时限；部分页面初始化等待使用固定超时，交互式登录最多等待 10 分钟。                                                                                                         |
+| 字段             | 类型           | 默认值                                                       | 说明                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | -------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chromePath`     | 字符串         | 自动查找                                                     | Magpie 所在机器上的 Chromium 系浏览器可执行文件路径（Chrome、Chromium、Brave、Edge、Vivaldi、Arc、Opera 等）。优先于 `BUN_CHROME_PATH`；未指定时依次查找托管的 Chromium、`PATH` 中的浏览器及平台默认安装位置（macOS 的 `/Applications` 与 `~/Applications`、Windows 的 `Program Files`、`LocalAppData`）。官方 Docker 通常无需填写，插件会自动安装缺少的依赖。 |
+| `chromeArgs`     | 字符串数组     | `[]`                                                         | 追加到登录窗口及后台浏览器的启动参数。显式代理参数优先于自动代理。禁止以 `--user-data-dir`、`--remote-debugging` 或 `--headless` 开头的参数，账号目录、调试接口和运行模式由插件管理。官方 Docker 还会自动添加 `--no-sandbox` 和 `--disable-dev-shm-usage`。                                                                                                    |
+| `bootstrapModel` | 字符串         | 账号目录中首个可用的 GenerateContent 模型                    | 初始化页面和 WAA 时使用的模型，不改变实际生成请求指定的模型。必须来自当前账号的 GenerateContent 目录，仅允许字母、数字、下划线、点和连字符，不带 `models/` 前缀；不可用时会报错。                                                                                                                                                                              |
+| `timeoutMs`      | 数字，单位毫秒 | 浏览器进程通信和生成请求为 `180000`；页面内部请求为 `120000` | 覆盖上述可配置的超时，必须是有限数值且不小于 `1000`。不代表整个启动或登录过程的总时限；部分页面初始化等待使用固定超时，交互式登录最多等待 10 分钟。                                                                                                                                                                                                            |
 
 ### 环境变量
 
 环境变量应设置在 Magpie 进程或 Docker 容器中，不写入选项 JSON。
 
-| 变量                                                 | 默认值                                     | 说明                                                                                                                                                                                                      |
-| ---------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BUN_CHROME_PATH`                                    | 自动查找                                   | 浏览器可执行文件路径，插件选项 `chromePath` 的优先级更高。                                                                                                                                                |
-| `MAGPIE_AISTUDIO_DATA_DIR`                           | `~/.local/share/magpie-google-ai-studio/`  | 创建和导入账号时保存会话及独立 Chrome 配置目录的位置。官方 Docker 默认为 `/config/home/.local/share/magpie-google-ai-studio/`；自定义到其他位置时需自行挂载以持久化。修改此变量不会自动移动已有账号目录。 |
-| `XDG_CACHE_HOME`                                     | `~/.cache`；官方 Docker 为 `/config/cache` | 自动安装浏览器依赖的缓存根目录，依赖保存在其 `magpie-google-ai-studio/dependencies/` 子目录。                                                                                                             |
-| `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` | 未设置                                     | 进程的 HTTP、HTTPS、通用代理及免代理规则，也接受对应小写变量。通过 Magpie 使用时，应优先在 Magpie 中配置代理，宿主会向账号进程传入实际选择的代理。                                                        |
+| 变量                                                 | 默认值                                     | 说明                                                                                                                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BUN_CHROME_PATH`                                    | 自动查找                                   | 浏览器可执行文件路径，插件选项 `chromePath` 的优先级更高。                                                                                                                                              |
+| `MAGPIE_AISTUDIO_DATA_DIR`                           | `~/.local/share/magpie-google-ai-studio/`  | 创建和导入账号时保存会话及独立浏览器配置目录的位置。官方 Docker 默认为 `/config/home/.local/share/magpie-google-ai-studio/`；自定义到其他位置时需自行挂载以持久化。修改此变量不会自动移动已有账号目录。 |
+| `XDG_CACHE_HOME`                                     | `~/.cache`；官方 Docker 为 `/config/cache` | 自动安装浏览器依赖的缓存根目录，依赖保存在其 `magpie-google-ai-studio/dependencies/` 子目录。                                                                                                           |
+| `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` | 未设置                                     | 进程的 HTTP、HTTPS、通用代理及免代理规则，也接受对应小写变量。通过 Magpie 使用时，应优先在 Magpie 中配置代理，宿主会向账号进程传入实际选择的代理。                                                      |
 
 ### 代理
 
@@ -155,9 +157,9 @@ magpie plugin options magpie-google-ai-studio '{"chromePath":"/usr/bin/chromium"
 
 初始化时，插件会在临时聊天中填写一条初始化消息，并拦截提交请求，取得页面动态请求头和 WAA 服务。该初始化请求在页面内被阻止，不发送到生成接口。实际请求重新生成 WAA 证明及 SAPISID 签名。
 
-交互登录期间不连接浏览器调试接口，关闭登录窗口后才通过 WebView 验证会话。插件禁用 Chrome 自身的账号登录，避免恢复的网页 Cookie 因缺少浏览器 OAuth 令牌而被清除，并等待 Chrome 退出后再读取会话存储。
+交互登录期间不连接浏览器调试接口，关闭登录窗口后才通过 WebView 验证会话。插件禁用浏览器的账号登录（Chrome 的账号同步登录），避免恢复的网页 Cookie 因缺少浏览器 OAuth 令牌而被清除，并等待浏览器完全退出后再读取会话存储。
 
-AI Studio 会拒绝 Bun 默认无头 Chrome 的部分浏览器标记，即使账号已登录、模型列表可读取，生成接口仍可能返回 403。插件启动 Chrome 时关闭 `AutomationControlled` 标记，并从浏览器实际 User-Agent 中移除 `HeadlessChrome` 前缀，保留真实平台和版本，不固定伪造某个 Chrome 版本。
+AI Studio 会拒绝自动化控制的部分浏览器标记，即使账号已登录、模型列表可读取，生成接口仍可能返回 403。插件启动浏览器时关闭 `AutomationControlled` 标记，并从浏览器实际 User-Agent 中移除 `HeadlessChrome` 前缀，保留真实平台和版本，不固定伪造某个浏览器版本。
 
 ## 支持的功能
 
