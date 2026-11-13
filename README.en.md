@@ -40,7 +40,7 @@ magpie plugin login google-ai-studio
 
 Choose "Sign in to Google AI Studio", complete the sign-in and the AI Studio first-use setup in the browser window that opens, then close the window. The plugin verifies and saves the session, and later requests run in the background. Interactive sign-in waits up to 10 minutes.
 
-The sign-in window appears on the machine running Magpie and uses a separate browser profile directory. When a remote server has no desktop, sign in on a machine that has one and migrate the session afterwards.
+The sign-in window appears on the machine running Magpie and uses a separate browser profile directory, so it opens without your own bookmarks, extensions or accounts. When a remote server has no desktop, sign in on a machine that has one and migrate the session afterwards. Closing the sign-in window before it finishes leaves a profile behind; the plugin removes those once they have been idle for more than fifteen minutes, and never touches a profile that has a session.
 
 On Linux outside Docker, you can install the Chromium package your distribution provides, for example on Debian:
 

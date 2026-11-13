@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -12,6 +12,7 @@ import {
   listSessions,
   type StorageState,
   saveSession,
+  sweepIncompleteProfiles,
 } from "../src/session.ts";
 
 const state: StorageState = {
@@ -243,6 +244,36 @@ test("export refuses a relative path instead of hiding credentials in the workin
       await expect(exportSession(source, state, path)).rejects.toThrow("Use an absolute export path");
     // Only the profile created by createSession, and no stray export file.
     expect(await readdir(root)).toEqual([basename(source.profile)]);
+  } finally {
+    if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
+    else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("abandoned sign-in profiles are swept once they are older than the login window", async () => {
+  const root = await mkdtemp(join(tmpdir(), "magpie-sweep-"));
+  const previous = process.env.MAGPIE_AISTUDIO_DATA_DIR;
+  process.env.MAGPIE_AISTUDIO_DATA_DIR = root;
+  try {
+    const account = await createSession("kept-account");
+    await saveSession(account);
+    const abandoned = await createSession("abandoned");
+    await Bun.write(join(abandoned.profile, "Local State"), "browser state");
+    const fresh = await createSession("still-signing-in");
+    await Bun.write(join(fresh.profile, "Local State"), "browser state");
+    const now = Date.now();
+    // Backdate only the abandoned profile; the other is mid-sign-in right now.
+    const stale = new Date(now - 20 * 60 * 1000);
+    await utimes(abandoned.profile, stale, stale);
+    const removed = await sweepIncompleteProfiles(now);
+    expect(removed).toEqual([abandoned.profile]);
+    expect(await listSessions()).toEqual([account]);
+    expect((await readdir(root)).sort()).toEqual([basename(account.profile), basename(fresh.profile)].sort());
+    // A profile that still has its descriptor survives any age.
+    await utimes(account.profile, stale, stale);
+    expect(await sweepIncompleteProfiles(now)).toEqual([]);
+    expect(await listSessions()).toEqual([account]);
   } finally {
     if (previous === undefined) delete process.env.MAGPIE_AISTUDIO_DATA_DIR;
     else process.env.MAGPIE_AISTUDIO_DATA_DIR = previous;

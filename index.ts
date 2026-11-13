@@ -11,6 +11,7 @@ import {
   readSession,
   type Session,
   saveSession,
+  sweepIncompleteProfiles,
 } from "./src/session.ts";
 
 const ID = "google-ai-studio";
@@ -35,6 +36,9 @@ export default {
         error instanceof Error ? error.message : "Browser dependency setup failed",
       );
     });
+    // A sign-in that was closed before it finished leaves a full browser profile
+    // behind. Sweep them at load so abandoned attempts do not accumulate.
+    void sweepIncompleteProfiles().catch(() => {});
     const clients = new Map<string, StudioClient>();
     const clientFor = (session: Session) => {
       let client = clients.get(session.profile);

@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { chmod, mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -119,6 +119,47 @@ export async function saveSession(session: Session): Promise<string> {
   await chmod(temporary, 0o600);
   await rename(temporary, path);
   return path;
+}
+
+// A sign-in creates its profile before the browser starts, so closing the login
+// window early leaves a filled browser profile that no account points at. The
+// login window is allowed ten minutes, so anything younger than this may still
+// belong to a sign-in that is running in this or another Magpie process.
+const INCOMPLETE_PROFILE_TTL = 15 * 60 * 1000;
+
+/**
+ * Remove browser profiles that never became an account.
+ *
+ * A profile holding `account.session.json` is an account and is never touched.
+ * Only directories that no descriptor claims and that have been idle past the
+ * sign-in window are deleted, so an abandoned sign-in stops costing disk space.
+ */
+export async function sweepIncompleteProfiles(now = Date.now()): Promise<string[]> {
+  const root = dataDirectory();
+  let entries: Dirent[];
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const profile = join(root, entry.name);
+    if (await Bun.file(join(profile, "account.session.json")).exists()) continue;
+    let modified: number;
+    try {
+      modified = (await stat(profile)).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (now - modified < INCOMPLETE_PROFILE_TTL) continue;
+    try {
+      await rm(profile, { recursive: true, force: true });
+      removed.push(profile);
+    } catch {}
+  }
+  return removed;
 }
 
 export async function listSessions(): Promise<Session[]> {
