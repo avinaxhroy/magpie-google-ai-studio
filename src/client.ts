@@ -220,9 +220,27 @@ export class StudioClient {
     const timeoutSignal = AbortSignal.timeout(this.options.timeoutMs || 180_000);
     const abort = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     let finished = false;
+    // Startup is the one phase that cannot be cancelled from inside the page:
+    // navigating and waiting for the prompt box happen in the browser process.
+    // Closing the account's worker is the only way to stop that, but once the
+    // request itself is issued, aborting must cancel just that request so the
+    // shared worker and its warm catalog survive for the next one.
+    let issued = false;
+    let stop!: () => void;
+    const aborted = new Promise<never>((_, reject) => {
+      stop = () => reject(abort.reason ?? new DOMException("AI Studio request aborted", "AbortError"));
+      abort.addEventListener("abort", stop, { once: true });
+    });
+    // The race below usually wins with a real value, leaving this rejection
+    // unobserved; marking it handled keeps Bun from reporting it as a crash.
+    aborted.catch(() => {});
     const cleanup = async () => {
       if (finished) return;
       finished = true;
+      // Both listeners must go: AbortSignal.timeout cannot be cancelled, so a
+      // listener left on it would fire minutes after a successful request and
+      // close the shared worker for no reason.
+      abort.removeEventListener("abort", stop);
       abort.removeEventListener("abort", onAbort);
       try {
         if (this.child) await this.rpc("cancel", { requestId: id }, 5000);
@@ -231,10 +249,15 @@ export class StudioClient {
       }
       release();
     };
-    // Killing an account's isolated process also cancels navigation/bootstrap,
-    // not only the final fetch, when the caller disconnects during startup.
     const onAbort = () => {
-      this.close(new DOMException("AI Studio request aborted", "AbortError"));
+      // A caller that walked away only loses its own request. A timeout means
+      // the browser is wedged, so the worker is recycled to recover.
+      if (!issued || timeoutSignal.aborted)
+        this.close(
+          abort.reason instanceof Error
+            ? abort.reason
+            : new DOMException("AI Studio request aborted", "AbortError"),
+        );
       void cleanup();
     };
     abort.addEventListener("abort", onAbort, { once: true });
@@ -242,7 +265,7 @@ export class StudioClient {
       abort.throwIfAborted();
       await this.open(false, abort);
       abort.throwIfAborted();
-      if (model) this.catalog ||= await this.rpc<Wire>("models");
+      if (model) this.catalog ||= await Promise.race([this.rpc<Wire>("models"), aborted]);
       const rows = (this.catalog?.[0] || []) as Wire[];
       const defaults = rows.find((row) => row[0] === `models/${model}`);
       if (model && !defaults)
@@ -250,11 +273,12 @@ export class StudioClient {
           status: 404,
         });
       const encoded = encode(defaults, this.timezone);
-      await this.rpc("generate", { requestId: id, ...encoded });
+      issued = true;
+      await Promise.race([this.rpc("generate", { requestId: id, ...encoded }), aborted]);
       let head: PageChunk;
       for (;;) {
         abort.throwIfAborted();
-        head = await this.rpc<PageChunk>("poll", { requestId: id });
+        head = await Promise.race([this.rpc<PageChunk>("poll", { requestId: id }), aborted]);
         if (head.error)
           throw Object.assign(
             new Error("AI Studio page request failed; sign in again or check the page protocol"),
@@ -286,7 +310,7 @@ export class StudioClient {
               }
               if (result.chunks.length) return;
               await Bun.sleep(25);
-              buffered = await this.rpc<PageChunk>("poll", { requestId: id });
+              buffered = await Promise.race([this.rpc<PageChunk>("poll", { requestId: id }), aborted]);
             }
             abort.throwIfAborted();
           } catch (error) {

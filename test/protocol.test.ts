@@ -159,6 +159,22 @@ test("sparse protobuf and byte-fragmented Unicode stream decode without losing u
   });
 });
 
+test("an unknown Part is skipped, but a reply with only unknown Parts fails", async () => {
+  // Field 99 is not mapped by decodePart, so this Part decodes to nothing.
+  const future: Wire = Array(100).fill(null);
+  future[99] = [null, [["future field"]]];
+  const frame = (parts: Wire[]) => [[[[parts, "model"]]]];
+  const text = (value: string) => [null, value];
+  const stream = (body: Wire) => byteStream(`[[${JSON.stringify(body)},${JSON.stringify(finishFrame)}]]`);
+  const kept = await aggregateGenerate(decodeGenerateStream(stream(frame([text("kept text"), future]))));
+  expect((kept.candidates as { content?: { parts?: unknown[] } }[])[0].content?.parts).toEqual([
+    { text: "kept text" },
+  ]);
+  await expect(aggregateGenerate(decodeGenerateStream(stream(frame([future]))))).rejects.toThrow(
+    "no supported fields",
+  );
+});
+
 test("complete frames arrive before EOF and missing finish or root fails", async () => {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const source = new ReadableStream<Uint8Array>({
@@ -184,7 +200,7 @@ test("complete frames arrive before EOF and missing finish or root fails", async
   for (const prefix of ["null", "[]"]) {
     await expect(
       aggregateGenerate(decodeGenerateStream(byteStream(`[${prefix},[429,"private error"]]`))),
-    ).rejects.toThrow(`private RPC error: [${prefix},[429,"private error"]]`);
+    ).rejects.toThrow("upstream returned a private RPC error 429: private error");
   }
 });
 

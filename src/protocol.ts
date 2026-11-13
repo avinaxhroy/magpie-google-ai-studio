@@ -101,13 +101,50 @@ export function parseSparseJSON(text: string): Json {
 }
 
 const ERROR_BODY_LIMIT = 8 * 1024;
+/** Error text is shown in the Magpie UI, so it is capped far below the raw body. */
+const ERROR_TEXT_LIMIT = 300;
 
-/** Keep the raw UTF-8 body prefix without interpreting private error fields. */
+// Upstream failures carry the signed-in account's e-mail, its project number,
+// and occasionally a bearer token. None of that belongs in a chat error card,
+// which is visible to whoever reads the conversation and to bug reports.
+const REDACTIONS: [RegExp, string][] = [
+  [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[email]"],
+  [/(bearer\s+)[\w.~+/=-]+/gi, "$1[token]"],
+  [
+    /((?:api[-_]?key|token|secret|password|authorization)["']?\s*[:=]\s*["']?)[\w.~+/=-]{8,}/gi,
+    "$1[redacted]",
+  ],
+  [/\b(?:projects?|projectNumber|project_number)["']?\s*[:=]\s*["']?\d{6,}/gi, "project [redacted]"],
+  [/\bprojects?\s+\d{6,}/gi, "project [redacted]"],
+  [/\bya29\.[\w.-]+/g, "ya29.[redacted]"],
+  [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[uuid]"],
+];
+
+function redact(text: string): string {
+  return REDACTIONS.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), text);
+}
+
+/** Keep a short, scrubbed UTF-8 prefix without interpreting private error fields. */
 export function errorBody(value: string | Uint8Array): string {
   const bytes = typeof value === "string" ? Buffer.from(value) : value;
   const truncated = bytes.byteLength > ERROR_BODY_LIMIT;
-  const text = new TextDecoder().decode(bytes.subarray(0, ERROR_BODY_LIMIT), { stream: truncated });
-  return truncated ? `${text}\n[truncated]` : text;
+  const text = redact(new TextDecoder().decode(bytes.subarray(0, ERROR_BODY_LIMIT), { stream: truncated }))
+    .replace(/\s+/g, " ")
+    .trim();
+  const clipped = Array.from(text).slice(0, ERROR_TEXT_LIMIT).join("");
+  return text.length > ERROR_TEXT_LIMIT || truncated ? `${clipped} [truncated]` : clipped;
+}
+
+/**
+ * The stream's error branch is a private protobuf-ish tuple: `[frames, [code,
+ * message, ...]]`. Only the status code and the redacted message survive,
+ * because the raw tuple carries the signed-in account's identifiers.
+ */
+function privateRPCError(detail: unknown): string {
+  const tuple = Array.isArray(detail) ? detail : [];
+  const code = tuple[0] ?? "unknown";
+  const message = errorBody(tuple[1] == null ? "" : String(tuple[1]));
+  return `upstream returned a private RPC error ${String(code)}: ${message || "no message"}`;
 }
 
 /** Read only enough bytes to retain the body prefix and detect truncation. */
@@ -833,7 +870,6 @@ function decodePart(value: unknown): Record<string, unknown> {
   }
   if (p[12] != null) part.thought = wireBool(p[12]);
   if (p[14] != null) part.thoughtSignature = string(p[14]);
-  if (Object.keys(part).length === 0) fail("response Part has no supported fields");
   return part;
 }
 function enumName(value: unknown, names: string[], path: string): string {
@@ -928,10 +964,14 @@ function decodeFrame(value: unknown, seen: Set<number>, finished: Set<number>): 
       if (c[0] != null) {
         const content = array(c[0], "candidate content");
         if (content[1] !== "model") fail("response content role must be model");
-        candidate.content = {
-          role: "model",
-          parts: content[0] == null ? [] : array(content[0]).map(decodePart),
-        };
+        const raw = content[0] == null ? [] : array(content[0]);
+        // Google adds Part kinds faster than this decoder maps them, so a Part
+        // with nothing recognised is skipped rather than failing the response.
+        // A candidate whose every Part is unrecognised is different: every
+        // visible byte of the reply would silently vanish, so that still fails.
+        const parts = raw.map(decodePart).filter((part) => Object.keys(part).length > 0);
+        if (raw.length > 0 && parts.length === 0) fail("response Part has no supported fields");
+        candidate.content = { role: "model", parts };
       }
       if (c[1] != null) {
         candidate.finishReason = enumName(c[1], finishReasons, "finish reason");
@@ -1068,12 +1108,12 @@ export async function* decodeRPCStream(source: ReadableStream<Uint8Array>): Asyn
     }
     if (state === "error") {
       const root = array(parseSparseJSON(prefix), "GenerateContent error");
-      if (root[1] != null) fail(`upstream returned a private RPC error: ${errorBody(prefix)}`);
+      if (root[1] != null) fail(privateRPCError(root[1]));
       fail("GenerateContent root[0] must be a repeated frame array");
     }
     if (state !== "tail") fail("truncated GenerateContent stream");
     const root = array(parseSparseJSON(`[[]${tail}`), "GenerateContent root");
-    if (root[1] != null) fail(`upstream returned a private RPC error: ${errorBody(`[[]${tail}`)}`);
+    if (root[1] != null) fail(privateRPCError(root[1]));
   } finally {
     if (!ended) {
       try {

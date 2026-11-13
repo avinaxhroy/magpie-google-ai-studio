@@ -304,14 +304,18 @@ test("Gemini fetch rejects unsupported input locally and retains upstream HTTP e
   });
 });
 
-test("generation and auxiliary endpoints preserve raw error bodies and HTTP status", async () => {
-  for (const [status, body] of [
-    [400, '{\n  "diagnostic": {"原因": "未知参数", "fields": ["temperature"]}\n}\n'],
-    [429, '[8,"Quota exceeded",[{"retryAfter":30}]]'],
-    [403, '[null,[7,"Model access denied"],{"context":"fixture"}]'],
-    [502, "<!doctype html><html><body>Bad gateway</body></html>"],
-    [400, '{"error":'],
-    [400, "  Plain-text error\nwith context\n"],
+test("generation and auxiliary endpoints preserve status but scrub the error body", async () => {
+  for (const [status, body, expected] of [
+    [
+      400,
+      '{\n  "diagnostic": {"原因": "未知参数", "fields": ["temperature"]}\n}\n',
+      '{ "diagnostic": {"原因": "未知参数", "fields": ["temperature"]} }',
+    ],
+    [429, '[8,"Quota exceeded",[{"retryAfter":30}]]', '[8,"Quota exceeded",[{"retryAfter":30}]]'],
+    [403, '[null,[7,"Model access denied"],{"context":"fixture"}]', null],
+    [502, "<!doctype html><html><body>Bad gateway</body></html>", null],
+    [400, '{"error":', '{"error":'],
+    [400, "  Plain-text error\nwith context\n", "Plain-text error with context"],
   ] as const) {
     const fetch = providerFetch({
       ...transport,
@@ -332,9 +336,37 @@ test("generation and auxiliary endpoints preserve raw error bodies and HTTP stat
       expect(response.status).toBe(status);
       expect((await response.json()).error).toMatchObject({
         code: status,
-        message: `Google AI Studio returned HTTP ${status}: ${body}`,
+        message: `Google AI Studio returned HTTP ${status}: ${expected ?? body.replace(/\s+/g, " ")}`,
       });
     }
+  }
+});
+
+test("upstream error bodies never echo account identifiers", async () => {
+  const leaky = [
+    '{"error":{"code":403,"message":"Permission denied for fixture@example.com in project 987654321","status":"PERMISSION_DENIED"}}',
+    '{"error":{"message":"Bearer tok_live_abcdef1234567890 was rejected"}}',
+    '{"error":{"message":"api_key=fake-not-a-real-key is invalid"}}',
+    '{"error":{"message":"trace 3f2504e0-4f89-11d3-9a0c-0305e82c3301 failed"}}',
+  ];
+  for (const body of leaky) {
+    const fetch = providerFetch({
+      ...transport,
+      async generate() {
+        return new Response(body, { status: 403 });
+      },
+    });
+    const response = await fetch(`${base}generateContent`, { method: "POST", body: JSON.stringify(request) });
+    const message = (await response.json()).error.message as string;
+    expect(message).toContain("Google AI Studio returned HTTP 403");
+    for (const secret of [
+      "fixture@example.com",
+      "987654321",
+      "tok_live_abcdef1234567890",
+      "fake-not-a-real-key",
+      "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    ])
+      expect(message).not.toContain(secret);
   }
 });
 
@@ -360,7 +392,7 @@ test("empty or unreadable upstream error bodies retain HTTP status", async () =>
   }
 });
 
-test("raw errors keep an 8 KiB prefix and mark truncation without waiting for EOF", async () => {
+test("raw errors keep a short scrubbed prefix and mark truncation without waiting for EOF", async () => {
   for (const length of [8191, 8192, 8193]) {
     const body = "x".repeat(length);
     const fetch = providerFetch({
@@ -371,7 +403,7 @@ test("raw errors keep an 8 KiB prefix and mark truncation without waiting for EO
     });
     const response = await fetch(`${base}generateContent`, { method: "POST", body: JSON.stringify(request) });
     expect((await response.json()).error.message).toBe(
-      `Google AI Studio returned HTTP 400: ${"x".repeat(Math.min(length, 8192))}${length > 8192 ? "\n[truncated]" : ""}`,
+      `Google AI Studio returned HTTP 400: ${"x".repeat(300)}${length > 300 ? " [truncated]" : ""}`,
     );
   }
   let cancelled = false;
@@ -393,7 +425,7 @@ test("raw errors keep an 8 KiB prefix and mark truncation without waiting for EO
   });
   const response = await fetch(`${base}generateContent`, { method: "POST", body: JSON.stringify(request) });
   expect((await response.json()).error.message).toBe(
-    `Google AI Studio returned HTTP 400: ${"x".repeat(8191)}\n[truncated]`,
+    `Google AI Studio returned HTTP 400: ${"x".repeat(300)} [truncated]`,
   );
   expect(cancelled).toBe(true);
 });

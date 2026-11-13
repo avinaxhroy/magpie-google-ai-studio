@@ -29,6 +29,7 @@ export class StudioBrowser {
   private headers: Record<string, string> = {};
   private bootstrapped = false;
   private closing?: Promise<void>;
+  private importedState?: string;
   private proxy?: Awaited<ReturnType<typeof browserProxy>>;
 
   constructor(
@@ -174,9 +175,10 @@ export class StudioBrowser {
       await this.view.cdp("Page.removeScriptToEvaluateOnNewDocument", {
         identifier: importScript,
       });
-      await rm(join(this.session.profile, "storage-state.json"), {
-        force: true,
-      });
+      // The browser holds this state in memory from here on; the file itself is
+      // deleted in close(), because removing it now races the browser that is
+      // still starting up and reading it.
+      this.importedState = join(this.session.profile, "storage-state.json");
     }
   }
 
@@ -373,6 +375,9 @@ export class StudioBrowser {
           clearTimeout(timer);
         }
       }
+      // One-shot credentials are removed only once the browser that read them
+      // has exited, so a slow start cannot lose the import it was given.
+      if (this.importedState) await rm(this.importedState, { force: true }).catch(() => {});
       try {
         this.view?.close();
       } finally {
