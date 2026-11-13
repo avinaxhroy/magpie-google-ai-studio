@@ -189,7 +189,7 @@ Example native Gemini request; replace the model name with one from the account 
 
 ```json
 {
-  "contents": [{ "role": "user", "parts": [{ "text": "调用 lookup，查询编号 7。" }] }],
+  "contents": [{ "role": "user", "parts": [{ "text": "Call lookup for item 7." }] }],
   "tools": [
     {
       "functionDeclarations": [
@@ -214,7 +214,7 @@ Example Magpie embeddings request body:
 ```json
 {
   "model": "google-ai-studio/gemini-embedding-001",
-  "input": ["第一段文本", "第二段文本"],
+  "input": ["first passage", "second passage"],
   "dimensions": 128,
   "encoding_format": "float"
 }
